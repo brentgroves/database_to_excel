@@ -1,42 +1,67 @@
-# https://www.sharepointdiary.com/2016/06/upload-files-to-sharepoint-online-using-powershell.html
-#Load SharePoint CSOM Assemblies
-Add-Type -Path "C:\Program Files\Common Files\Microsoft Shared\Web Server Extensions\16\ISAPI\Microsoft.SharePoint.Client.dll"
-Add-Type -Path "C:\Program Files\Common Files\Microsoft Shared\Web Server Extensions\16\ISAPI\Microsoft.SharePoint.Client.Runtime.dll"
-  
-#Variables for Processing
-$WebUrl = "https://crescent.sharepoint.com/Sites/Sales/"
-$LibraryName ="Documents"
-$SourceFile="C:\SitesToCreate.csv"
-$AdminName ="Salaudeen@crescent.com"
-$AdminPassword ="password goes here"
-  
-#Setup Credentials to connect
-$Credentials = New-Object Microsoft.SharePoint.Client.SharePointOnlineCredentials($AdminName,(ConvertTo-SecureString $AdminPassword -AsPlainText -Force))
-  
-#Set up the context
-$Context = New-Object Microsoft.SharePoint.Client.ClientContext($WebUrl) 
-$Context.Credentials = $Credentials
- 
-#Get the Library
-$Library =  $Context.Web.Lists.GetByTitle($LibraryName)
- 
-#Get the file from disk
-$FileStream = ([System.IO.FileInfo] (Get-Item $SourceFile)).OpenRead()
-#Get File Name from source file path
-$SourceFileName = Split-path $SourceFile -leaf
-   
-#sharepoint online upload file powershell
-$FileCreationInfo = New-Object Microsoft.SharePoint.Client.FileCreationInformation
-$FileCreationInfo.Overwrite = $true
-$FileCreationInfo.ContentStream = $FileStream
-$FileCreationInfo.URL = $SourceFileName
-$FileUploaded = $Library.RootFolder.Files.Add($FileCreationInfo)
-  
-#powershell upload single file to sharepoint online
-$Context.Load($FileUploaded) 
-$Context.ExecuteQuery() 
- 
-#Close file stream
-$FileStream.Close()
-  
-write-host "File has been uploaded!"
+#  https://docs.microsoft.com/en-us/answers/questions/68953/generate-excel-spreadsheet-xls-in-sql-server.html
+ Write-Host –NoNewLine “Processing.................Do not close"
+ ## - Get SQL Server Table data:
+ $SQLServer = 'mgsqlmi.public.48d444e7f69b.dat';
+ $Database = 'mgdw';
+ # $today = (get-date).ToString("dd-MM-yyyy")
+ $ExportFile = "C:\trial_balance_multi_level_2022_03.xlsx"
+ # $ExportFile = "\\zoom-nas\Shared_Documents\FC Folder\Despatch\Brexit Files\Landmark\Landmark "+$today+".xlsx"
+ ##$SqlQuery = @'EXEC [zoomfs].[LandMarkGlobalExport]'@ ;
+    
+ ## - Connect to SQL Server using non-SMO class 'System.Data':
+ $SqlConnection = New-Object System.Data.SqlClient.SqlConnection;
+ $SqlConnection.ConnectionString = `
+ "Server = $SQLServer; Database = $Database; Integrated Security = True";
+    
+ $SqlCmd = New-Object System.Data.SqlClient.SqlCommand;
+ Report.trial_balance
+@start_period int,
+@end_period int 
+$SqlCmd.CommandText = $("EXEC [Report].[trial_balance] 202203,202203");
+# $SqlCmd.CommandText = $("EXEC [scyhema].[LandMarkGlobalExport]");
+ $SqlCmd.Connection = $SqlConnection;
+ $SqlCmd.CommandTimeout = 0;
+    
+ ## - Extract and build the SQL data object '$DataSetTable':
+ $SqlAdapter = New-Object System.Data.SqlClient.SqlDataAdapter;
+ $SqlAdapter.SelectCommand = $SqlCmd;
+ $DataSet = New-Object System.Data.DataSet;
+ $SqlAdapter.Fill($DataSet);
+ $DataSetTable = $DataSet.Tables["Table"];
+    
+    
+ ## ---------- Working with Excel ---------- ##
+    
+ ## - Create an Excel Application instance:
+ $xlsObj = New-Object -ComObject Excel.Application;
+    
+ ## - Create new Workbook and Sheet (Visible = 1 / 0 not visible)
+ $xlsObj.Visible = 0;
+ $xlsWb = $xlsobj.Workbooks.Add();
+ $xlsSh = $xlsWb.Worksheets.item(1);
+ $xlsSh.columns.item('A').NumberFormat = "@"
+ $xlsSh.columns.item('P').NumberFormat = "@"
+ ## - Copy entire table to the clipboard as tab delimited CSV
+ $DataSetTable | ConvertTo-Csv -NoType -Del "`t" | Clip
+    
+ ## - Paste table to Excel
+ $xlsObj.ActiveCell.PasteSpecial() | Out-Null
+    
+ ## - Set columns to auto-fit width
+ $xlsObj.ActiveSheet.UsedRange.Columns|%{$_.AutoFit()|Out-Null}
+    
+ ## - Saving Excel file - if the file exist do delete then save
+ $xlsFile = $ExportFile;
+    
+ if (Test-Path $xlsFile)
+ {
+ Remove-Item $xlsFile
+ $xlsObj.ActiveWorkbook.SaveAs($xlsFile);
+ }
+ else
+ {
+ $xlsObj.ActiveWorkbook.SaveAs($xlsFile);
+ };
+    
+ ## Quit Excel and Terminate Excel Application process:
+ $xlsObj.Quit(); (Get-Process Excel*) | foreach ($_) { $_.kill() };
